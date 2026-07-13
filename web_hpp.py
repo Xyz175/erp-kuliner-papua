@@ -3,11 +3,12 @@ import pandas as pd
 import psycopg2
 import matplotlib.pyplot as plt
 from datetime import datetime
+import time  # TAMBAHAN: Modul untuk memberi jeda waktu notifikasi
 
 # ==========================================
 # 1. PENGATURAN HALAMAN & KONEKSI SUPABASE
 # ==========================================
-st.set_page_config(page_title="Sistem ERP Cloud V3 (Multi-Gudang & Taman)", layout="wide", page_icon="🏢")
+st.set_page_config(page_title="Sistem ERP Cloud V4 (Multi-Gudang)", layout="wide", page_icon="🏢")
 
 # --- SISTEM LOGIN ---
 if 'sudah_login' not in st.session_state:
@@ -38,7 +39,6 @@ def init_db():
     conn.autocommit = True 
     cursor = conn.cursor()
     
-    # 1. Tabel Bahan Baku (Gudang Induk, Kios, Cafe, dan Taman)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bahan_baku (
             nama_bahan TEXT PRIMARY KEY,
@@ -53,7 +53,6 @@ def init_db():
             harga_jual_internal REAL DEFAULT 0
         )
     """)
-    # 2. Tabel Resep / Operasional
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS resep (
             id SERIAL PRIMARY KEY,
@@ -65,7 +64,6 @@ def init_db():
             tanggal_dibuat TEXT
         )
     """)
-    # 3. Tabel Detail Resep
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS detail_resep (
             id SERIAL PRIMARY KEY,
@@ -76,7 +74,6 @@ def init_db():
             subtotal_biaya REAL
         )
     """)
-    # 4. Tabel Riwayat Stok & Penjualan Internal
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS riwayat_stok (
             id SERIAL PRIMARY KEY,
@@ -92,7 +89,6 @@ def init_db():
         )
     """)
     
-    # SUNTIKAN KOLOM TAMAN JIKA BELUM ADA
     try: cursor.execute("ALTER TABLE bahan_baku ADD COLUMN stok_taman REAL DEFAULT 0")
     except: pass 
         
@@ -112,7 +108,7 @@ if 'edit_resep_nama' not in st.session_state:
 # ==========================================
 # 2. MENU NAVIGASI
 # ==========================================
-st.sidebar.title("🏢 ERP MULTI-GUDANG V3")
+st.sidebar.title("🏢 ERP MULTI-GUDANG V4")
 st.sidebar.write("---")
 menu = st.sidebar.radio("Navigasi Sistem:", 
     ["📊 Dashboard Analitik", "📦 Manajemen Gudang Pusat", "🚚 Penjualan ke Unit (Cabang)", "🍳 Operasional & Dapur", "📂 Arsip & Harga Jual"]
@@ -162,12 +158,12 @@ if menu == "📊 Dashboard Analitik":
 # ==========================================
 elif menu == "📦 Manajemen Gudang Pusat":
     st.title("📦 Gudang Induk (Etnik Papua)")
-    st.write("⚠️ **Aturan Sistem:** Semua barang baru (milik Kios, Cafe, atau Taman) **WAJIB** diinput ke Gudang Induk terlebih dahulu di halaman ini, lalu didistribusikan melalui menu Transfer.")
+    st.write("⚠️ **Aturan Sistem:** Semua barang baru **WAJIB** diinput ke Gudang Induk terlebih dahulu.")
     
     df_bahan_ada = get_daftar_bahan()
     pilihan_edit = "-- Input Produk Baru / Kulakan Baru --"
     if not df_bahan_ada.empty:
-        pilihan_edit = st.selectbox("💡 Pilih barang untuk diedit/ditambah, atau biarkan di pilihan pertama untuk Produk Baru:", ["-- Input Produk Baru / Kulakan Baru --"] + df_bahan_ada['nama_bahan'].tolist())
+        pilihan_edit = st.selectbox("💡 Pilih barang untuk diedit/ditambah:", ["-- Input Produk Baru / Kulakan Baru --"] + df_bahan_ada['nama_bahan'].tolist())
     
     val_nama, val_harga, val_isi, val_satuan, val_jual_internal = "", 0.0, 1.0, "pcs", 0.0
     if pilihan_edit != "-- Input Produk Baru / Kulakan Baru --":
@@ -179,11 +175,11 @@ elif menu == "📦 Manajemen Gudang Pusat":
         val_jual_internal = float(row_edit.get('harga_jual_internal', 0))
         
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: entry_nama = st.text_input("Nama Barang (Merek/Jenis)", value=val_nama, help="Contoh: Sabun Mandi Lifebuoy, Tisu Homestay")
+    with c1: entry_nama = st.text_input("Nama Barang", value=val_nama)
     with c2: entry_harga = st.number_input("Total Harga Beli (Rp)", min_value=0.0, value=val_harga)
     with c3: entry_isi = st.number_input("Jumlah Isi", min_value=1.0, value=val_isi)
-    with c4: entry_satuan = st.text_input("Satuan (gr/pcs/ml)", value=val_satuan)
-    with c5: entry_jual_int = st.number_input("Harga Jual ke Unit (Rp/Satuan)", min_value=0.0, value=val_jual_internal, help="Harga barang ini saat dijual ke Kios/Taman/Cafe")
+    with c4: entry_satuan = st.text_input("Satuan", value=val_satuan)
+    with c5: entry_jual_int = st.number_input("Harga Jual ke Unit (Rp/Satuan)", min_value=0.0, value=val_jual_internal)
     
     if st.button("💾 Simpan & Masukkan ke Gudang Induk", type="primary"):
         if entry_nama:
@@ -205,7 +201,10 @@ elif menu == "📦 Manajemen Gudang Pusat":
             conn.commit()
             cursor.close()
             conn.close()
-            st.success(f"Berhasil dimasukkan ke Gudang Induk! Silakan buka menu Transfer untuk membagikannya.")
+            
+            # NOTIFIKASI SUKSES (DITAHAN 1.5 DETIK AGAR TERBACA)
+            st.success(f"✅ Berhasil dimasukkan ke Gudang Induk!")
+            time.sleep(1.5)
             st.rerun()
 
     st.write("---")
@@ -221,7 +220,6 @@ elif menu == "📦 Manajemen Gudang Pusat":
 # ==========================================
 elif menu == "🚚 Penjualan ke Unit (Cabang)":
     st.title("🚚 Transfer & Penjualan Internal")
-    st.write("Keluarkan barang dari Gudang Induk, lalu transfer ke unit yang membutuhkannya.")
     
     df_g = get_daftar_bahan()
     if df_g.empty:
@@ -250,10 +248,8 @@ elif menu == "🚚 Penjualan ke Unit (Cabang)":
                 conn = get_connection()
                 cursor = conn.cursor()
                 
-                # Kurangi stok induk
                 cursor.execute("UPDATE bahan_baku SET stok_gudang = stok_gudang - %s WHERE nama_bahan = %s", (qty_transfer, bahan_transfer))
                 
-                # Tambah stok unit sesuai pilihan
                 if unit_tujuan == "Cafe":
                     cursor.execute("UPDATE bahan_baku SET stok_cafe = COALESCE(stok_cafe, 0) + %s WHERE nama_bahan = %s", (qty_transfer, bahan_transfer))
                 elif unit_tujuan == "Kios":
@@ -261,7 +257,6 @@ elif menu == "🚚 Penjualan ke Unit (Cabang)":
                 elif unit_tujuan == "Taman":
                     cursor.execute("UPDATE bahan_baku SET stok_taman = COALESCE(stok_taman, 0) + %s WHERE nama_bahan = %s", (qty_transfer, bahan_transfer))
                 
-                # Catat Keuntungan
                 cursor.execute("""
                     INSERT INTO riwayat_stok (tanggal, nama_bahan, jenis_transaksi, jumlah, keterangan, laba_internal, dari_gudang, ke_unit) 
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
@@ -270,7 +265,10 @@ elif menu == "🚚 Penjualan ke Unit (Cabang)":
                 conn.commit()
                 cursor.close()
                 conn.close()
-                st.success(f"Sukses! {qty_transfer} {data_b['satuan']} {bahan_transfer} telah berpindah ke {unit_tujuan}.")
+                
+                # NOTIFIKASI SUKSES
+                st.success(f"✅ Sukses! {qty_transfer} {data_b['satuan']} {bahan_transfer} telah berpindah ke {unit_tujuan}.")
+                time.sleep(1.5)
                 st.rerun()
             else:
                 st.error("Stok Gudang Induk tidak mencukupi!")
@@ -280,8 +278,6 @@ elif menu == "🚚 Penjualan ke Unit (Cabang)":
 # ==========================================
 elif menu == "🍳 Operasional & Dapur":
     st.title("🍳 Ruang Penggunaan & Resep")
-    
-    st.info("Pilih unit yang sedang mencatat pengeluaran. Stok akan otomatis terpotong dari gudang unit tersebut.")
     unit_pembuat = st.radio("Unit Operasional:", ["Cafe (Dapur Makanan)", "Kios (Jajanan/Minuman)", "Taman (Kebersihan/Homestay)"])
     
     df_b = get_daftar_bahan()
@@ -330,7 +326,7 @@ elif menu == "🍳 Operasional & Dapur":
             tot_bahan = 0.0
 
         st.write("---")
-        st.subheader("⚡ 2. Komponen Biaya Tenaga/Listrik (Bisa dikosongkan untuk Taman)")
+        st.subheader("⚡ 2. Komponen Biaya Tenaga/Listrik")
         col_op1, col_op2 = st.columns(2)
         with col_op1: waktu_menit = st.number_input("Waktu Pengerjaan (Menit):", min_value=0.0, step=5.0)
         with col_op2: gas_digunakan = st.number_input("Estimasi Gas LPG (Kg):", min_value=0.0, format="%.3f", step=0.010)
@@ -350,7 +346,7 @@ elif menu == "🍳 Operasional & Dapur":
         st.write("---")
         st.subheader("💾 3. Kunci Pemakaian & Simpan Laporan")
         col_s1, col_s2 = st.columns(2)
-        with col_s1: nama_menu_final = st.text_input("Nama Laporan/Menu Akhir:", value=st.session_state.edit_resep_nama, help="Contoh: Kopi Susu (Cafe) atau Pembersihan Kamar 1 (Taman)")
+        with col_s1: nama_menu_final = st.text_input("Nama Laporan/Menu Akhir:", value=st.session_state.edit_resep_nama)
         with col_s2:
             st.write("")
             st.write("")
@@ -375,7 +371,6 @@ elif menu == "🍳 Operasional & Dapur":
                         cursor.execute("INSERT INTO detail_resep (resep_id, nama_bahan, jumlah_pakai, satuan, subtotal_biaya) VALUES (%s,%s,%s,%s,%s)",
                                        (r_id, r['Nama Bahan'], r['Jumlah Pakai'], r['Satuan'], r['Subtotal']))
                         
-                        # POTONG STOK SESUAI UNIT PEMBUAT
                         if "Cafe" in unit_pembuat:
                             cursor.execute("UPDATE bahan_baku SET stok_cafe = COALESCE(stok_cafe,0) - %s WHERE nama_bahan = %s", (r['Jumlah Pakai'], r['Nama Bahan']))
                         elif "Kios" in unit_pembuat:
@@ -387,7 +382,10 @@ elif menu == "🍳 Operasional & Dapur":
                     cursor.close()
                     conn.close()
                     
-                    st.success(f"Data tersimpan & Stok {unit_pembuat.split()[0]} otomatis terpotong!")
+                    # NOTIFIKASI SUKSES
+                    st.success(f"✅ Data tersimpan & Stok otomatis terpotong!")
+                    time.sleep(1.5)
+                    
                     st.session_state.racikan_sementara = pd.DataFrame(columns=["Nama Bahan", "Jumlah Pakai", "Satuan", "Subtotal"])
                     st.session_state.edit_resep_nama = ""
                     st.rerun()
@@ -414,7 +412,8 @@ elif menu == "📂 Arsip & Harga Jual":
                 for _, r in editor_resep.iterrows():
                     cursor.execute("UPDATE resep SET harga_jual=%s WHERE id=%s", (float(r['Harga Jual Saat Ini (Rp)']), int(r['ID'])))
                 conn.commit()
-                st.success("Harga jual diperbarui!")
+                st.success("✅ Harga jual diperbarui!")
+                time.sleep(1)
                 st.rerun()
                 
             st.write("---")
@@ -436,10 +435,10 @@ elif menu == "📂 Arsip & Harga Jual":
                     r_id = cursor.fetchone()[0]
                     df_det = pd.read_sql_query(f'SELECT nama_bahan as "Nama Bahan", jumlah_pakai as "Jumlah Pakai", satuan as "Satuan", subtotal_biaya as "Subtotal" FROM detail_resep WHERE resep_id={r_id}', conn)
                     st.session_state.racikan_sementara = df_det
-                    # Hapus tag unit [Cafe] dari nama agar bersih saat diedit
                     nama_bersih = pilih_r.split("] ")[-1] if "]" in pilih_r else pilih_r
                     st.session_state.edit_resep_nama = nama_bersih
-                    st.success("Berhasil ditarik! Silakan edit di tab 'Operasional & Dapur'.")
+                    st.success("✅ Berhasil ditarik! Silakan edit di tab 'Operasional & Dapur'.")
+                    time.sleep(1.5)
             with col_ax3:
                 if st.button("🗑️ Hapus Laporan Permanen", use_container_width=True, type="primary"):
                     cursor = conn.cursor()
