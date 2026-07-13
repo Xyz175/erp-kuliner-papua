@@ -67,7 +67,7 @@ def init_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS detail_resep (id SERIAL PRIMARY KEY, resep_id INTEGER, nama_bahan TEXT, jumlah_pakai REAL, satuan TEXT, subtotal_biaya REAL)")
     cursor.execute("CREATE TABLE IF NOT EXISTS riwayat_stok (id SERIAL PRIMARY KEY, tanggal TEXT, nama_bahan TEXT, jenis_transaksi TEXT, jumlah REAL, keterangan TEXT, laba_internal REAL DEFAULT 0, dari_gudang TEXT, ke_unit TEXT)")
     
-    # 🌟 PEMBARUAN TABEL GUDANG KIOS 🌟
+    # PEMBARUAN TABEL GUDANG KIOS
     cursor.execute("CREATE TABLE IF NOT EXISTS stok_kios_item (nama_barang TEXT PRIMARY KEY, stok REAL DEFAULT 0, satuan TEXT)")
     
     try: cursor.execute("ALTER TABLE stok_kios_item ADD COLUMN harga_beli REAL DEFAULT 0")
@@ -86,7 +86,6 @@ def init_db():
             laba_rp REAL, rugi_rp REAL, pic TEXT
         )
     """)
-    # Menambahkan kolom keterangan bon tanpa merusak data lama
     try: cursor.execute("ALTER TABLE laporan_penjualan_kios ADD COLUMN keterangan_bon TEXT DEFAULT ''")
     except: pass
 
@@ -296,7 +295,6 @@ if menu == "📊 Dashboard Admin":
 
         st.write("---")
         st.subheader("📜 Riwayat Laba Rugi Kios (Validasi)")
-        # Tambahan kolom "Siapa yang Bon"
         df_log_k = pd.read_sql_query("SELECT tanggal as \"Waktu\", nama_barang as \"Barang\", terjual as \"Laku\", dihutang as \"Bon\", keterangan_bon as \"Siapa yang Bon\", hilang as \"Rugi Fisik\", laba_rp as \"Laba (Rp)\", rugi_rp as \"Kerugian (Rp)\", pic as \"Checker\" FROM laporan_penjualan_kios ORDER BY id DESC", conn)
         st.dataframe(df_log_k, use_container_width=True)
         tombol_download_excel(df_log_k, "📥 Unduh Laporan Kios (Excel)", "LabaRugi_Kios.xlsx", title="Laporan Profit & Loss Kios", currency_cols=[6, 7])
@@ -482,7 +480,6 @@ elif menu == "🏪 Operasional Kios":
                         cursor = conn.cursor()
                         tgl = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # Mengubah stok etalase menjadi sisa fisik
                         cursor.execute("UPDATE stok_kios_item SET stok_etalase = %s WHERE nama_barang = %s", (float(sisa_fisik), v_brg))
                         
                         cursor.execute("""
@@ -529,4 +526,137 @@ elif menu == "🍽️ HPP Cafe":
                 if st.button("➕ Tambah ke Draf Menu", use_container_width=True):
                     if pilih_b != "Kosong" and qty > 0:
                         row = df_b[df_b['nama_bahan'] == pilih_b].iloc[0]
-                        h_modal = row['harga_jual_internal'] if row['harga_jual_internal'] > 0 else row['
+                        h_modal = row['harga_jual_internal'] if row['harga_jual_internal'] > 0 else row['harga_satuan']
+                        sub = float(qty * h_modal)
+                        df_skrg = st.session_state.racikan_sementara
+                        if pilih_b in df_skrg['Nama Bahan'].values:
+                            df_skrg.loc[df_skrg['Nama Bahan'] == pilih_b, ["Jumlah Pakai", "Subtotal"]] = [float(qty), sub]
+                        else:
+                            tambah = pd.DataFrame([[str(pilih_b), float(qty), str(row['satuan']), sub]], columns=df_skrg.columns)
+                            st.session_state.racikan_sementara = pd.concat([df_skrg, tambah], ignore_index=True)
+                        st.rerun()
+        st.write("---")
+        if not st.session_state.racikan_sementara.empty:
+            st.session_state.racikan_sementara = st.data_editor(st.session_state.racikan_sementara, use_container_width=True)
+            tot_bahan = float(st.session_state.racikan_sementara['Subtotal'].sum())
+
+            st.subheader("⚡ Komponen Operasional Dapur")
+            co1, co2 = st.columns(2)
+            with co1: waktu = st.number_input("Waktu Meracik (Menit):", min_value=0.0, step=5.0)
+            with co2: gas = st.number_input("Gas LPG (Kg):", min_value=0.0, format="%.3f")
+
+            biaya_ops = float(((10000 / 60) * waktu) + ((3000 / 60) * waktu) + (gas * 18000))
+            tot_final = float(tot_bahan + biaya_ops)
+
+            st.info(f"📊 Modal Bahan: Rp {tot_bahan:,.0f} | Operasional: Rp {biaya_ops:,.0f} | HPP Pokok: Rp {tot_final:,.2f}")
+
+            st.subheader("💰 Estimasi Harga Jual & Laba")
+            hj1, hj2 = st.columns(2)
+            with hj1: harga_jual_draf = st.number_input("Rencana Harga Jual Menu (Rp):", min_value=0.0, step=1000.0)
+            with hj2:
+                laba_draf = harga_jual_draf - tot_final
+                margin_draf = (laba_draf / harga_jual_draf * 100) if harga_jual_draf > 0 else 0.0
+                st.markdown(f"**Estimasi Laba:** Rp {laba_draf:,.2f} ({margin_draf:.1f}%)")
+
+            cx1, cx2 = st.columns(2)
+            with cx1: nama_menu = st.text_input("Nama Menu Kuliner:")
+            with cx2:
+                st.write(""); st.write("")
+                if st.button("💾 Kunci Resep & Potong Stok", type="primary", use_container_width=True):
+                    if nama_menu.strip():
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        tgl = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        cursor.execute(
+                            "INSERT INTO resep (nama_resep, total_hpp_bahan, total_operasional, total_hpp_final, harga_jual, tanggal_dibuat) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (nama_resep) DO UPDATE SET total_hpp_bahan=EXCLUDED.total_hpp_bahan, total_operasional=EXCLUDED.total_operasional, total_hpp_final=EXCLUDED.total_hpp_final, harga_jual=EXCLUDED.harga_jual",
+                            (nama_menu.strip(), tot_bahan, biaya_ops, tot_final, harga_jual_draf, tgl)
+                        )
+                        cursor.execute("SELECT id FROM resep WHERE nama_resep=%s", (nama_menu.strip(),))
+                        r_id = cursor.fetchone()[0]
+                        cursor.execute("DELETE FROM detail_resep WHERE resep_id=%s", (r_id,))
+
+                        for _, r in st.session_state.racikan_sementara.iterrows():
+                            cursor.execute("INSERT INTO detail_resep (resep_id, nama_bahan, jumlah_pakai, satuan, subtotal_biaya) VALUES (%s,%s,%s,%s,%s)", (r_id, str(r['Nama Bahan']), float(r['Jumlah Pakai']), str(r['Satuan']), float(r['Subtotal'])))
+                            cursor.execute("UPDATE bahan_baku SET stok_cafe = COALESCE(stok_cafe,0) - %s WHERE nama_bahan = %s", (float(r['Jumlah Pakai']), str(r['Nama Bahan'])))
+
+                        conn.commit()
+                        conn.close()
+                        st.session_state.racikan_sementara = pd.DataFrame(columns=["Nama Bahan", "Jumlah Pakai", "Satuan", "Subtotal"])
+                        st.toast("🎉 Resep Disimpan!", icon="🍳")
+                        st.rerun()
+
+    with tab_tambah_bahan:
+        with st.form("form_tambah_bahan_cafe", clear_on_submit=True):
+            col_b1, col_b2 = st.columns(2)
+            with col_b1: nama_baru_cafe = st.text_input("Nama Bahan Baku:")
+            with col_b2: hrg_baru_cafe = st.number_input("Harga Beli (Total Rp):", min_value=0.0)
+            col_b3, col_b4 = st.columns(2)
+            with col_b3: qty_baru_cafe = st.number_input("Jumlah / Isi Berat:", min_value=1.0)
+            with col_b4: sat_baru_cafe = st.text_input("Satuan (kg, pcs, ml, dll):")
+
+            if st.form_submit_button("💾 Masukkan ke Database Cafe"):
+                if nama_baru_cafe.strip() and sat_baru_cafe.strip():
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    harga_satuan_cafe = float(hrg_baru_cafe / qty_baru_cafe)
+                    cursor.execute("""
+                        INSERT INTO bahan_baku (nama_bahan, harga_beli, jumlah_isi, satuan, harga_satuan, stok_cafe, harga_jual_internal)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (nama_bahan) DO UPDATE SET stok_cafe = bahan_baku.stok_cafe + EXCLUDED.stok_cafe, harga_beli = EXCLUDED.harga_beli, harga_satuan = EXCLUDED.harga_satuan, harga_jual_internal = EXCLUDED.harga_jual_internal
+                    """, (nama_baru_cafe.strip(), float(hrg_baru_cafe), float(qty_baru_cafe), sat_baru_cafe.strip(), harga_satuan_cafe, float(qty_baru_cafe), harga_satuan_cafe))
+                    conn.commit()
+                    conn.close()
+                    st.toast(f"📦 {nama_baru_cafe} Masuk Stok Cafe!", icon="✅")
+                    st.rerun()
+
+    if role in ["Owner", "Admin"]:
+        with tab_arsip:
+            conn = get_connection()
+            df_c = pd.read_sql_query('SELECT id as "ID", nama_resep as "Nama Menu", total_hpp_final as "HPP Pokok (Rp)", harga_jual as "Harga Jual (Rp)", tanggal_dibuat as "Waktu Pembuatan" FROM resep ORDER BY id DESC', conn)
+            if df_c.empty: st.info("Belum ada resep.")
+            else:
+                edited = st.data_editor(df_c, use_container_width=True, disabled=["ID", "Nama Menu", "HPP Pokok (Rp)", "Waktu Pembuatan"])
+                if st.button("💾 Simpan Perubahan Harga Jual", type="primary"):
+                    cursor = conn.cursor()
+                    for _, r in edited.iterrows():
+                        cursor.execute("UPDATE resep SET harga_jual=%s WHERE id=%s", (float(r['Harga Jual (Rp)']), int(r['ID'])))
+                    conn.commit()
+                    st.toast("💰 Harga Diperbarui!", icon="✅")
+                    st.rerun()
+            conn.close()
+
+# --- MENU 4: MENU OWNER ---
+elif menu == "👥 Menu Owner":
+    st.title("👥 Manajemen Otoritas Hak Akses User")
+    conn = get_connection()
+    df_users = pd.read_sql_query("SELECT username as \"ID User\", role as \"Tingkat Akses\" FROM users", conn)
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.subheader("📋 Daftar Pengguna Sistem")
+        st.dataframe(df_users, use_container_width=True)
+        hapus_user = st.selectbox("Hapus Akses Staf:", df_users['ID User'].tolist())
+        if st.button("Hapus Akun Karyawan", type="primary", use_container_width=True):
+            if hapus_user == "owner": st.error("Akses Owner Mutlak tidak boleh dihapus!")
+            else:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM users WHERE username=%s", (hapus_user,))
+                conn.commit()
+                st.toast(f"🗑️ Akses {hapus_user} Dicabut!", icon="✅")
+                st.rerun()
+    with col2:
+        st.subheader("➕ Daftarkan Akun Staf Baru")
+        with st.form("tambah_staf", clear_on_submit=True):
+            new_u = st.text_input("Username Baru:")
+            new_p = st.text_input("Password Rahasia:", type="password")
+            new_r = st.selectbox("Posisi Divisi:", ["Gudang Kios", "Karyawan", "Admin"])
+            if st.form_submit_button("💾 Daftarkan Karyawan"):
+                if new_u.strip() and new_p.strip():
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute("INSERT INTO users VALUES (%s, %s, %s)", (new_u.strip().lower(), hash_password(new_p), new_r))
+                        conn.commit()
+                        st.toast(f"🎉 Akun {new_u} Berhasil Aktif!", icon="✅")
+                        st.rerun()
+                    except: st.error("ID tersebut sudah terdaftar!")
+    conn.close()
+
+render_footer()
