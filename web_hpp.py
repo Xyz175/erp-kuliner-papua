@@ -27,94 +27,62 @@ st.set_page_config(
 )
 
 # --- KREDENSIAL DATABASE ---
-# PENTING (KEAMANAN): jangan menaruh username/password database langsung di kode.
-# Simpan di file .streamlit/secrets.toml (lokal) atau menu "Secrets" (Streamlit Cloud):
-#
-#   SUPABASE_URI = "postgresql://user:password@host:port/db"
-#
-# Kode di bawah akan membaca dari st.secrets terlebih dahulu. Fallback hanya untuk
-# menjaga aplikasi tetap berjalan sementara — SEGERA pindahkan ke secrets & GANTI
-# password database ini karena sebelumnya sempat tertulis polos di source code.
 _FALLBACK_URI = "postgresql://postgres.jskxygpvnbjgjjgsvwqf:ZeeyStore175@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres"
 SUPABASE_URI = st.secrets.get("SUPABASE_URI", _FALLBACK_URI) if hasattr(st, "secrets") else _FALLBACK_URI
 
-
 def get_connection():
     return psycopg2.connect(SUPABASE_URI)
-
 
 def hash_password(raw_password: str) -> str:
     """Hash password dengan SHA-256 agar tidak tersimpan polos di database."""
     return hashlib.sha256(raw_password.strip().encode("utf-8")).hexdigest()
 
-
 def init_db():
-    """
-    Fungsi ini dirancang khusus agar AMAN SAAT UPDATE KODE.
-    Menggunakan 'IF NOT EXISTS' agar data lama di Supabase tidak terganggu atau terhapus.
-    """
     conn = get_connection()
     conn.autocommit = True
     cursor = conn.cursor()
 
-    # 1. Tabel Akses Akun (Owner, Admin, Karyawan, Gudang Kios)
     cursor.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)")
-    # ON CONFLICT DO NOTHING menjamin password owner lama Anda tidak akan ter-reset saat update kode
     cursor.execute(
         "INSERT INTO users (username, password, role) VALUES ('owner', %s, 'Owner') ON CONFLICT DO NOTHING",
         (hash_password("owner123"),)
     )
 
-    # Migrasi keamanan: hash ulang password lama yang masih tersimpan polos (bukan SHA-256 64 karakter)
     cursor.execute("SELECT username, password FROM users")
     for uname, pw in cursor.fetchall():
         if pw is None or len(pw) != 64:
             cursor.execute("UPDATE users SET password=%s WHERE username=%s", (hash_password(pw or ""), uname))
 
-    # 2. Tabel Bahan Baku Utama (Gudang Pusat, Cafe, Taman)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bahan_baku (
             nama_bahan TEXT PRIMARY KEY, harga_beli REAL, jumlah_isi REAL, satuan TEXT, harga_satuan REAL,
             stok_gudang REAL DEFAULT 0, stok_cafe REAL DEFAULT 0, stok_taman REAL DEFAULT 0, harga_jual_internal REAL DEFAULT 0
         )
     """)
-
-    # 3. Tabel Master Resep / Menu Finansial
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS resep (
             id SERIAL PRIMARY KEY, nama_resep TEXT UNIQUE, total_hpp_bahan REAL,
             total_operasional REAL, total_hpp_final REAL, harga_jual REAL DEFAULT 0, tanggal_dibuat TEXT
         )
     """)
-
-    # 4. Tabel Detail Bahan Penyusun Menu
     cursor.execute("CREATE TABLE IF NOT EXISTS detail_resep (id SERIAL PRIMARY KEY, resep_id INTEGER, nama_bahan TEXT, jumlah_pakai REAL, satuan TEXT, subtotal_biaya REAL)")
-
-    # 5. Tabel Log Riwayat Stok Logistik Pusat
     cursor.execute("CREATE TABLE IF NOT EXISTS riwayat_stok (id SERIAL PRIMARY KEY, tanggal TEXT, nama_bahan TEXT, jenis_transaksi TEXT, jumlah REAL, keterangan TEXT, laba_internal REAL DEFAULT 0, dari_gudang TEXT, ke_unit TEXT)")
-
-    # 6. Tabel Mandiri Gudang Kios (Terpisah dari HPP Cafe)
     cursor.execute("CREATE TABLE IF NOT EXISTS stok_kios_item (nama_barang TEXT PRIMARY KEY, stok REAL DEFAULT 0, satuan TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS riwayat_kios (id SERIAL PRIMARY KEY, tanggal TEXT, nama_barang TEXT, jenis_transaksi TEXT, jumlah REAL, pic TEXT)")
 
     cursor.close()
     conn.close()
 
-
-# Jalankan proteksi database
 try:
     init_db()
 except Exception as e:
     st.error(f"⚠️ Gagal sinkronisasi arsitektur DB: {e}")
 
-
 # ==========================================
-# 1B. HELPER EXPORT EXCEL YANG MENARIK (bukan CSV polos)
+# 1B. HELPER EXPORT EXCEL 
 # ==========================================
 def buat_excel_menarik(df: pd.DataFrame, title: str, sheet_name: str = "Data",
                         currency_cols=None, extra_info=None) -> bytes:
-    """Mengubah DataFrame menjadi file Excel (.xlsx) berformat rapi: judul berwarna,
-    header tebal, baris zebra, format Rupiah otomatis, dan lebar kolom otomatis."""
     wb = Workbook()
     ws = wb.active
     ws.title = sheet_name
@@ -173,7 +141,6 @@ def buat_excel_menarik(df: pd.DataFrame, title: str, sheet_name: str = "Data",
     wb.save(buffer)
     return buffer.getvalue()
 
-
 def tombol_download_excel(df: pd.DataFrame, label: str, file_name: str, title: str,
                            currency_cols=None, key=None):
     if df is None or df.empty:
@@ -185,7 +152,6 @@ def tombol_download_excel(df: pd.DataFrame, label: str, file_name: str, title: s
         use_container_width=True, key=key
     )
 
-
 def get_daftar_bahan():
     try:
         conn = get_connection()
@@ -196,12 +162,10 @@ def get_daftar_bahan():
         st.warning(f"Gagal memuat data bahan baku: {e}")
         return pd.DataFrame()
 
-
 if 'racikan_sementara' not in st.session_state:
     st.session_state.racikan_sementara = pd.DataFrame(columns=["Nama Bahan", "Jumlah Pakai", "Satuan", "Subtotal"])
 if 'sudah_login' not in st.session_state:
     st.session_state.sudah_login = False
-
 
 # ==========================================
 # 1C. GAYA VISUAL (CSS TEMA RUMAH ETNIK PAPUA)
@@ -243,45 +207,35 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-
 def render_footer():
     st.markdown(f"""
     <div class="footer-zeey">
-        🏛️ <b>ERP Rumah Etnik Papua</b> — Wisata Budaya Papua<br>
         Dibuat &amp; dikembangkan oleh <b>ZeeyStudio</b><br>
         📱 WhatsApp: <b>0813-5413-1178</b>
     </div>
     """, unsafe_allow_html=True)
 
-
 # ==========================================
-# 2. GERBANG UTAMA (SISTEM LOGIN) — DESAIN RUMAH ETNIK PAPUA
+# 2. GERBANG UTAMA (SISTEM LOGIN) — LOGO DI ATAS TANPA TEKS
 # ==========================================
 if not st.session_state.sudah_login:
     import os
     col_hero, col_form = st.columns([1.1, 1])
 
     with col_hero:
-        st.markdown(f"""
-        <div style="background: linear-gradient(160deg, {C_PRIMARY} 0%, {C_PRIMARY_DARK} 100%);
-                    border-radius: 18px; padding: 40px 30px; color: white; height: 430px;
-                    display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;">
-            <h1 style="color:white; margin-bottom:4px;">Selamat Datang</h1>
-            <p style="font-size:17px; opacity:0.95;">Sistem ERP Terpadu — Gudang, Cafe &amp; Kios</p>
-            <p style="font-size:15px; opacity:0.85; margin-top:10px;">🏞️ Wisata Budaya Papua</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.write("<br><br>", unsafe_allow_html=True) # Memberi sedikit jarak dari atas
         if os.path.exists(LOGO_FILE):
             st.image(LOGO_FILE, use_container_width=True)
 
     with col_form:
+        st.write("<br>", unsafe_allow_html=True)
         st.markdown(f"""
         <div style="background:white; border:2px solid {C_PRIMARY}; border-radius:16px; padding:30px 30px 10px 30px;">
         """, unsafe_allow_html=True)
         st.subheader("🔐 Masuk ke Sistem")
         user_input = st.text_input("Username")
         pass_input = st.text_input("Password", type="password")
-        if st.button("Masuk ke Sistem", type="primary", use_container_width=True):
+        if st.button("Masuk", type="primary", use_container_width=True):
             try:
                 conn = get_connection()
                 cursor = conn.cursor()
@@ -306,14 +260,15 @@ if not st.session_state.sudah_login:
     st.stop()
 
 # ==========================================
-# 3. NAVIGASI BAR BERDASARKAN ROLE (LOGIS KETAT)
+# 3. NAVIGASI BAR BERDASARKAN ROLE
 # ==========================================
 import os
 role = st.session_state.role
 if os.path.exists(LOGO_FILE):
     st.sidebar.image(LOGO_FILE, use_container_width=True)
-st.sidebar.title("🏢 KONTROL ERP")
-st.sidebar.write(f"User: **{st.session_state.username}** ({role})")
+
+# Teks di bawah logo pada sidebar juga diminimalkan
+st.sidebar.write(f"👤 User: **{st.session_state.username}** ({role})")
 if st.sidebar.button("🚪 Logout", use_container_width=True):
     st.session_state.sudah_login = False
     st.rerun()
@@ -329,9 +284,9 @@ elif role == "Owner":
     menu_options = ["📊 Dashboard Admin", "📦 Gudang", "🍽️ HPP Cafe", "👥 Menu Owner"]
 else:
     menu_options = []
-    st.error("Role tidak dikenali. Hubungi Owner untuk memperbaiki akses akun Anda.")
+    st.error("Role tidak dikenali.")
 
-menu = st.sidebar.radio("Navigasi:", menu_options) if menu_options else None
+menu = st.sidebar.radio("Menu Navigasi:", menu_options) if menu_options else None
 
 # ==========================================
 # 4. IMPLEMENTASI OPERASIONAL
@@ -727,8 +682,6 @@ elif menu == "👥 Menu Owner":
         with st.form("tambah_staf", clear_on_submit=True):
             new_u = st.text_input("Username Baru:")
             new_p = st.text_input("Password Rahasia:", type="password")
-            # Catatan keamanan: role "Owner" sengaja TIDAK bisa dipilih di sini agar
-            # tidak ada duplikasi otoritas tertinggi tanpa sepengetahuan pemilik asli.
             new_r = st.selectbox("Posisi Divisi:", ["Gudang Kios", "Karyawan", "Admin"])
             if st.form_submit_button("💾 Daftarkan Karyawan"):
                 if new_u.strip() and new_p.strip():
