@@ -4,9 +4,9 @@ import psycopg2
 from datetime import datetime
 
 # ==========================================
-# 1. KONFIGURASI HALAMAN & DATABASE CLOUD
+# 1. KONFIGURASI HALAMAN & DATABASE CLOUD (ABADI)
 # ==========================================
-st.set_page_config(page_title="Sistem ERP Cloud V12", layout="wide", page_icon="🏢")
+st.set_page_config(page_title="Sistem ERP Cloud V13", layout="wide", page_icon="🏢")
 
 SUPABASE_URI = "postgresql://postgres.jskxygpvnbjgjjgsvwqf:ZeeyStore175@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres"
 
@@ -14,29 +14,49 @@ def get_connection():
     return psycopg2.connect(SUPABASE_URI)
 
 def init_db():
+    """
+    Fungsi ini dirancang khusus agar AMAN SAAT UPDATE KODE.
+    Menggunakan 'IF NOT EXISTS' agar data lama di Supabase tidak terganggu atau terhapus.
+    """
     conn = get_connection()
     conn.autocommit = True 
     cursor = conn.cursor()
     
+    # 1. Tabel Akses Akun (Owner, Admin, Karyawan, Gudang Kios)
     cursor.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)")
+    # ON CONFLICT DO NOTHING menjamin password owner lama Anda tidak akan ter-reset saat update kode
     cursor.execute("INSERT INTO users (username, password, role) VALUES ('owner', 'owner123', 'Owner') ON CONFLICT DO NOTHING")
     
+    # 2. Tabel Bahan Baku Utama (Gudang Pusat, Cafe, Taman)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bahan_baku (
             nama_bahan TEXT PRIMARY KEY, harga_beli REAL, jumlah_isi REAL, satuan TEXT, harga_satuan REAL,
             stok_gudang REAL DEFAULT 0, stok_cafe REAL DEFAULT 0, stok_taman REAL DEFAULT 0, harga_jual_internal REAL DEFAULT 0
         )
     """)
-    cursor.execute("CREATE TABLE IF NOT EXISTS resep (id SERIAL PRIMARY KEY, nama_resep TEXT UNIQUE, total_hpp_bahan REAL, total_operasional REAL, total_hpp_final REAL, harga_jual REAL DEFAULT 0, tanggal_dibuat TEXT)")
+    
+    # 3. Tabel Master Resep / Menu Finansial
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS resep (
+            id SERIAL PRIMARY KEY, nama_resep TEXT UNIQUE, total_hpp_bahan REAL, 
+            total_operasional REAL, total_hpp_final REAL, harga_jual REAL DEFAULT 0, tanggal_dibuat TEXT
+        )
+    """)
+    
+    # 4. Tabel Detail Bahan Penyusun Menu
     cursor.execute("CREATE TABLE IF NOT EXISTS detail_resep (id SERIAL PRIMARY KEY, resep_id INTEGER, nama_bahan TEXT, jumlah_pakai REAL, satuan TEXT, subtotal_biaya REAL)")
+    
+    # 5. Tabel Log Riwayat Stok Logistik Pusat
     cursor.execute("CREATE TABLE IF NOT EXISTS riwayat_stok (id SERIAL PRIMARY KEY, tanggal TEXT, nama_bahan TEXT, jenis_transaksi TEXT, jumlah REAL, keterangan TEXT, laba_internal REAL DEFAULT 0, dari_gudang TEXT, ke_unit TEXT)")
     
+    # 6. Tabel Mandiri Gudang Kios (Terpisah dari HPP Cafe)
     cursor.execute("CREATE TABLE IF NOT EXISTS stok_kios_item (nama_barang TEXT PRIMARY KEY, stok REAL DEFAULT 0, satuan TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS riwayat_kios (id SERIAL PRIMARY KEY, tanggal TEXT, nama_barang TEXT, jenis_transaksi TEXT, jumlah REAL, pic TEXT)")
     
     cursor.close()
     conn.close()
 
+# Jalankan proteksi database
 try: init_db()
 except Exception as e: st.error(f"⚠️ Gagal sinkronisasi arsitektur DB: {e}")
 
@@ -74,10 +94,10 @@ if not st.session_state.sudah_login:
     st.stop()
 
 # ==========================================
-# 3. NAVIGASI BAR BERDASARKAN HAK AKSES
+# 3. NAVIGASI BAR BERDASARKAN ROLE (LOGIS KETAT)
 # ==========================================
 role = st.session_state.role
-st.sidebar.title("🏢 KONTROL ERP V12")
+st.sidebar.title("🏢 KONTROL ERP V13")
 st.sidebar.write(f"User: **{st.session_state.username}** ({role})")
 if st.sidebar.button("🚪 Logout"):
     st.session_state.sudah_login = False
@@ -96,7 +116,7 @@ elif role == "Owner":
 menu = st.sidebar.radio("Navigasi:", menu_options)
 
 # ==========================================
-# 4. IMPLEMENTASI LOGIKAL OPERASIONAL
+# 4. IMPLEMENTASI OPERASIONAL INSTAN (TANPA DELAY)
 # ==========================================
 
 # --- MENU 1: DASHBOARD ADMIN ---
@@ -116,9 +136,9 @@ if menu == "📊 Dashboard Admin":
         if not df_log.empty:
             st.download_button("📥 Ekspor Laporan Profit (Excel CSV)", data=convert_df_to_csv(df_log), file_name='Laporan_Profit.csv', mime='text/csv')
         conn.close()
-    except: st.warning("Menunggu data finansial...")
+    except: st.warning("Menunggu sirkulasi data...")
 
-# --- MENU 2: GUDANG (PENGGABUNGAN GUDANG) ---
+# --- MENU 2: GUDANG (TERINTEGRASI) ---
 elif menu == "📦 Gudang":
     st.title("📦 Pusat Logistik & Manajemen Gudang")
     
@@ -146,7 +166,7 @@ elif menu == "📦 Gudang":
                         cursor.execute("INSERT INTO bahan_baku (nama_bahan, harga_beli, jumlah_isi, satuan, harga_satuan, stok_gudang, harga_jual_internal) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (nama_bahan) DO UPDATE SET stok_gudang = bahan_baku.stok_gudang + EXCLUDED.stok_gudang, harga_jual_internal=EXCLUDED.harga_jual_internal", (nama.strip(), float(hrg), float(qty), sat.strip(), harga_per_satuan, float(qty), float(hrg_int)))
                         conn.commit()
                         conn.close()
-                        st.toast(f"✅ {nama} Berhasil Disimpan di Gudang Induk!", icon="📥")
+                        st.toast(f"✅ {nama} Tersimpan di Gudang Induk!", icon="📥")
                         st.rerun()
             st.write("---")
             if not df_b.empty:
@@ -182,7 +202,7 @@ elif menu == "📦 Gudang":
                     else: st.error("Stok Gudang Induk tidak mencukupi!")
 
     with tab_kios:
-        st.subheader("Manajemen Mandiri Gudang Kios")
+        st.subheader("Manajemen Mandiri Gudang Kios (Terpisah dari HPP)")
         conn = get_connection()
         df_kios = pd.read_sql_query("SELECT nama_barang, stok, satuan FROM stok_kios_item ORDER BY nama_barang ASC", conn)
         
@@ -202,7 +222,7 @@ elif menu == "📦 Gudang":
                     cursor.execute("INSERT INTO stok_kios_item (nama_barang, stok, satuan) VALUES (%s, %s, %s) ON CONFLICT (nama_barang) DO UPDATE SET stok = stok_kios_item.stok + EXCLUDED.stok", (nama_baru.strip(), float(qty_masuk), sat_baru.strip()))
                     cursor.execute("INSERT INTO riwayat_kios (tanggal, nama_barang, jenis_transaksi, jumlah, pic) VALUES (%s, %s, %s, %s, %s)", (tgl, nama_baru.strip(), 'Masuk', float(qty_masuk), st.session_state.username))
                     conn.commit()
-                    st.toast("📥 Stok Kios Berhasil Ditambahkan!", icon="🏪")
+                    st.toast("📥 Stok Kios Berhasil Diupdate!", icon="🏪")
                     st.rerun()
 
         with sub_tab_out:
@@ -239,7 +259,7 @@ elif menu == "🍽️ HPP Cafe":
     else:
         tab_dapur, tab_tambah_bahan = st.tabs(["🍳 Input Pemakaian Dapur", "➕ Tambah Bahan Cafe"])
 
-    # TAB 1 CAFE: RACIK MENU
+    # TAB 1: RACIK MENU & POTONG STOK
     with tab_dapur:
         st.subheader("🍳 Meracik Menu & Potong Stok")
         df_b = get_daftar_bahan()
@@ -306,25 +326,22 @@ elif menu == "🍽️ HPP Cafe":
                         st.toast("🎉 Resep Menu Berhasil Disimpan!", icon="🍳")
                         st.rerun()
 
-    # TAB 2 CAFE: INPUT BAHAN BARU INSTAN
+    # TAB 2: TAMBAH BAHAN CAFE MANDIRI (INSTAN TANPA DELAY)
     with tab_tambah_bahan:
         st.subheader("➕ Tambah Bahan Baku Belanjaan Baru")
-        st.info("Input di sini jika ada bahan yang baru dibeli di pasar dan belum masuk database. Stok akan otomatis bertambah ke Gudang Cafe.")
         with st.form("form_tambah_bahan_cafe", clear_on_submit=True):
             col_b1, col_b2 = st.columns(2)
             with col_b1: nama_baru_cafe = st.text_input("Nama Bahan Baku:")
             with col_b2: hrg_baru_cafe = st.number_input("Harga Beli (Total Rp):", min_value=0.0)
-            
             col_b3, col_b4 = st.columns(2)
             with col_b3: qty_baru_cafe = st.number_input("Jumlah / Isi Berat:", min_value=1.0)
-            with col_b4: sat_baru_cafe = st.text_input("Satuan (kg, pcs, ikat, ml, dll):")
+            with col_b4: sat_baru_cafe = st.text_input("Satuan (kg, pcs, ml, dll):")
             
             if st.form_submit_button("💾 Masukkan ke Database Cafe"):
                 if nama_baru_cafe:
                     conn = get_connection()
                     cursor = conn.cursor()
                     harga_satuan_cafe = float(hrg_baru_cafe / qty_baru_cafe)
-                    
                     cursor.execute("""
                         INSERT INTO bahan_baku (nama_bahan, harga_beli, jumlah_isi, satuan, harga_satuan, stok_cafe, harga_jual_internal) 
                         VALUES (%s, %s, %s, %s, %s, %s, %s) 
@@ -334,13 +351,12 @@ elif menu == "🍽️ HPP Cafe":
                                       harga_satuan = EXCLUDED.harga_satuan,
                                       harga_jual_internal = EXCLUDED.harga_jual_internal
                     """, (nama_baru_cafe.strip(), float(hrg_baru_cafe), float(qty_baru_cafe), sat_baru_cafe.strip(), harga_satuan_cafe, float(qty_baru_cafe), harga_satuan_cafe))
-                    
                     conn.commit()
                     conn.close()
-                    st.toast(f"📦 {nama_baru_cafe} berhasil masuk stok Cafe!", icon="✅")
+                    st.toast(f"📦 {nama_baru_cafe} Sukses Ditambahkan ke Stok Cafe!", icon="✅")
                     st.rerun()
 
-    # TAB 3 CAFE: ARSIP (HANYA OWNER/ADMIN)
+    # TAB 3: ARSIP CAFE (HANYA OWNER/ADMIN)
     if role in ["Owner", "Admin"]:
         with tab_arsip:
             st.subheader("📜 Arsip Dokumen HPP & Manajemen Harga Jual Cafe")
@@ -350,7 +366,6 @@ elif menu == "🍽️ HPP Cafe":
             if df_c.empty: st.info("Belum ada resep terdokumentasi.")
             else:
                 edited = st.data_editor(df_c, use_container_width=True, disabled=["ID", "Nama Menu", "HPP Pokok (Rp)", "Waktu Pembuatan"])
-                
                 c_as1, c_as2 = st.columns(2)
                 with c_as1:
                     if st.button("💾 Simpan Perubahan Harga Jual", type="primary", use_container_width=True):
@@ -374,7 +389,7 @@ elif menu == "🍽️ HPP Cafe":
                     st.rerun()
             conn.close()
 
-# --- MENU 4: MENU OWNER ---
+# --- MENU 4: MENU OWNER (OTORITAS TINGGI) ---
 elif menu == "👥 Menu Owner":
     st.title("👥 Manajemen Otoritas Hak Akses User")
     conn = get_connection()
