@@ -11,11 +11,11 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ==========================================
-# 0. TEMA WARNA (SESUAI LOGO RUMAH ETNIK PAPUA)
+# 0. TEMA WARNA ETNIK PAPUA
 # ==========================================
 C_PRIMARY = "#C57A2E"       # Oranye khas logo
 C_PRIMARY_DARK = "#8F5620"
-LOGO_FILE = "logo_rumah_etnik_papua.png"  # letakkan file ini 1 folder dengan script ini
+LOGO_FILE = "logo_rumah_etnik_papua.png"  
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN & DATABASE CLOUD
@@ -34,7 +34,6 @@ def get_connection():
     return psycopg2.connect(SUPABASE_URI)
 
 def hash_password(raw_password: str) -> str:
-    """Hash password dengan SHA-256 agar tidak tersimpan polos di database."""
     return hashlib.sha256(raw_password.strip().encode("utf-8")).hexdigest()
 
 def init_db():
@@ -81,17 +80,14 @@ except Exception as e:
 # ==========================================
 # 1B. HELPER EXPORT EXCEL 
 # ==========================================
-def buat_excel_menarik(df: pd.DataFrame, title: str, sheet_name: str = "Data",
-                        currency_cols=None, extra_info=None) -> bytes:
+def buat_excel_menarik(df: pd.DataFrame, title: str, sheet_name: str = "Data", currency_cols=None, extra_info=None) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = sheet_name
-
     headers = list(df.columns)
-    n_cols = len(headers)
-    last_col = get_column_letter(n_cols)
-    thin = Side(style="thin", color="D8CBB8")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    last_col = get_column_letter(len(headers))
+    border = Border(left=Side(style="thin", color="D8CBB8"), right=Side(style="thin", color="D8CBB8"), 
+                    top=Side(style="thin", color="D8CBB8"), bottom=Side(style="thin", color="D8CBB8"))
     currency_cols = currency_cols or []
 
     row_cursor = 1
@@ -141,10 +137,8 @@ def buat_excel_menarik(df: pd.DataFrame, title: str, sheet_name: str = "Data",
     wb.save(buffer)
     return buffer.getvalue()
 
-def tombol_download_excel(df: pd.DataFrame, label: str, file_name: str, title: str,
-                           currency_cols=None, key=None):
-    if df is None or df.empty:
-        return
+def tombol_download_excel(df: pd.DataFrame, label: str, file_name: str, title: str, currency_cols=None, key=None):
+    if df is None or df.empty: return
     data = buat_excel_menarik(df, title=title, currency_cols=currency_cols)
     st.download_button(
         label, data=data, file_name=file_name,
@@ -168,42 +162,63 @@ if 'sudah_login' not in st.session_state:
     st.session_state.sudah_login = False
 
 # ==========================================
-# 1C. GAYA VISUAL (CSS TEMA RUMAH ETNIK PAPUA)
+# 1C. GAYA VISUAL (CSS TEMA GELAP ELEGAN)
 # ==========================================
 st.markdown(f"""
 <style>
-    .stApp {{ background-color: #FBF4EC; }}
+    /* Latar Belakang Utama (Gelap Elegan) */
+    .stApp {{ background-color: #121212; }}
+    
+    /* Warna Sidebar (Pojok Kiri) */
     section[data-testid="stSidebar"] {{
-        background-color: #FBF0E4;
-        border-right: 3px solid {C_PRIMARY};
+        background-color: #1A1A1A;
+        border-right: 2px solid {C_PRIMARY_DARK};
     }}
-    h1, h2, h3 {{ color: {C_PRIMARY_DARK}; }}
-    .stButton>button, .stDownloadButton>button {{
-        background-color: {C_PRIMARY};
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
+    
+    /* Mengubah warna teks menjadi Krem Terang (Bukan Putih) agar jelas terbaca */
+    p, span, label, .stMarkdown {{ color: #D4C4A8 !important; }}
+    
+    /* Warna Judul Utama disesuaikan dengan logo */
+    h1, h2, h3, h4 {{ color: {C_PRIMARY} !important; }}
+    
+    /* Tampilan Kotak Input agar gelap */
+    .stTextInput>div>div>input, .stNumberInput>div>div>input {{
+        background-color: #262626 !important;
+        color: #D4C4A8 !important;
+        border: 1px solid {C_PRIMARY_DARK} !important;
     }}
-    .stButton>button:hover, .stDownloadButton>button:hover {{
-        background-color: {C_PRIMARY_DARK};
-        color: white;
-    }}
+    
+    /* Kotak Metrik / Ringkasan */
     div[data-testid="stMetric"] {{
-        background-color: #FFFFFF;
-        border: 1px solid #E8D3B8;
+        background-color: #1E1E1E;
+        border: 1px solid {C_PRIMARY_DARK};
         border-radius: 10px;
         padding: 10px;
     }}
+    
+    /* Tombol Aksi */
+    .stButton>button, .stDownloadButton>button {{
+        background-color: {C_PRIMARY};
+        color: #121212 !important; /* Teks tombol gelap agar kontras dengan oranye */
+        border: none;
+        border-radius: 8px;
+        font-weight: 700;
+    }}
+    .stButton>button:hover, .stDownloadButton>button:hover {{
+        background-color: {C_PRIMARY_DARK};
+        color: #D4C4A8 !important;
+    }}
+    
+    /* Footer */
     .footer-zeey {{
         margin-top: 60px;
         padding: 22px 10px;
         text-align: center;
-        border-top: 2px dashed {C_PRIMARY};
+        border-top: 1px dashed {C_PRIMARY_DARK};
         color: #8F5620;
         font-size: 14px;
     }}
-    .footer-zeey b {{ color: {C_PRIMARY_DARK}; }}
+    .footer-zeey b {{ color: {C_PRIMARY}; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -216,25 +231,33 @@ def render_footer():
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. GERBANG UTAMA (SISTEM LOGIN) — LOGO DI ATAS TANPA TEKS
+# 2. GERBANG UTAMA (SISTEM LOGIN)
 # ==========================================
 if not st.session_state.sudah_login:
     import os
-    col_hero, col_form = st.columns([1.1, 1])
+    
+    # Membuat Layout Tengah (Center)
+    _, col_center, _ = st.columns([1, 1.2, 1])
 
-    with col_hero:
-        st.write("<br><br>", unsafe_allow_html=True) # Memberi sedikit jarak dari atas
+    with col_center:
+        st.write("<br><br>", unsafe_allow_html=True) # Jarak atas
+        
+        # LOGO POSISI PALING ATAS
         if os.path.exists(LOGO_FILE):
             st.image(LOGO_FILE, use_container_width=True)
-
-    with col_form:
+            
         st.write("<br>", unsafe_allow_html=True)
+        
+        # FORM INPUT POSISI DI BAWAH LOGO
         st.markdown(f"""
-        <div style="background:white; border:2px solid {C_PRIMARY}; border-radius:16px; padding:30px 30px 10px 30px;">
+        <div style="background-color: #1E1E1E; border: 1px solid {C_PRIMARY_DARK}; border-radius: 16px; padding: 30px;">
+        <h3 style="text-align: center; margin-bottom: 20px;">🔐 Masuk ke Sistem</h3>
         """, unsafe_allow_html=True)
-        st.subheader("🔐 Masuk ke Sistem")
+        
         user_input = st.text_input("Username")
         pass_input = st.text_input("Password", type="password")
+        
+        st.write("<br>", unsafe_allow_html=True)
         if st.button("Masuk", type="primary", use_container_width=True):
             try:
                 conn = get_connection()
@@ -260,14 +283,16 @@ if not st.session_state.sudah_login:
     st.stop()
 
 # ==========================================
-# 3. NAVIGASI BAR BERDASARKAN ROLE
+# 3. NAVIGASI BAR BERDASARKAN ROLE (Gaya GitHub)
 # ==========================================
 import os
 role = st.session_state.role
+
+# LOGO DI POJOK KIRI ATAS (Mirip tampilan GitHub)
 if os.path.exists(LOGO_FILE):
     st.sidebar.image(LOGO_FILE, use_container_width=True)
+    st.sidebar.write("---")
 
-# Teks di bawah logo pada sidebar juga diminimalkan
 st.sidebar.write(f"👤 User: **{st.session_state.username}** ({role})")
 if st.sidebar.button("🚪 Logout", use_container_width=True):
     st.session_state.sudah_login = False
@@ -322,7 +347,7 @@ if menu == "📊 Dashboard Admin":
     except Exception as e:
         st.warning(f"Menunggu sinkronisasi data... ({e})")
 
-# --- MENU 2: GUDANG (TERINTEGRASI) ---
+# --- MENU 2: GUDANG ---
 elif menu == "📦 Gudang":
     st.title("📦 Pusat Logistik & Manajemen Gudang")
 
@@ -483,7 +508,6 @@ elif menu == "🍽️ HPP Cafe":
     else:
         tab_dapur, tab_tambah_bahan = st.tabs(["🍳 Input Pemakaian Dapur", "➕ Tambah Bahan Cafe"])
 
-    # TAB 1: RACIK MENU & POTONG STOK
     with tab_dapur:
         st.subheader("🍳 Meracik Menu & Potong Stok")
         df_b = get_daftar_bahan()
@@ -574,7 +598,6 @@ elif menu == "🍽️ HPP Cafe":
                     else:
                         st.warning("Nama menu wajib diisi.")
 
-    # TAB 2: TAMBAH BAHAN CAFE MANDIRI
     with tab_tambah_bahan:
         st.subheader("➕ Tambah Bahan Baku Belanjaan Baru")
         with st.form("form_tambah_bahan_cafe", clear_on_submit=True):
@@ -606,7 +629,6 @@ elif menu == "🍽️ HPP Cafe":
                 else:
                     st.warning("Nama bahan dan satuan wajib diisi.")
 
-    # TAB 3: ARSIP CAFE (HANYA OWNER/ADMIN)
     if role in ["Owner", "Admin"]:
         with tab_arsip:
             st.subheader("📜 Arsip Dokumen HPP & Manajemen Harga Jual Cafe")
@@ -658,7 +680,7 @@ elif menu == "🍽️ HPP Cafe":
                     st.rerun()
             conn.close()
 
-# --- MENU 4: MENU OWNER (OTORITAS TINGGI) ---
+# --- MENU 4: MENU OWNER ---
 elif menu == "👥 Menu Owner":
     st.title("👥 Manajemen Otoritas Hak Akses User")
     conn = get_connection()
